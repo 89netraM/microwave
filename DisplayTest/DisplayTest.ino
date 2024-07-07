@@ -34,6 +34,13 @@ long time = 0;
 long power = 100;
 long startTime = 0;
 
+enum Editing {
+  EditingNone,
+  EditingTime,
+  EditingPower,
+};
+enum Editing editing = EditingTime;
+
 void setup() {
   Serial.begin(9600);
   tft.begin();
@@ -42,8 +49,9 @@ void setup() {
   tft.setFont(&FreeSans24pt7b);
   tft.drawChar(62 + 26 + 26, 136, ':', FG_COLOR, BG_COLOR, 1);
 
-  writePower(power);
+  writePower();
   writeTime(time);
+  writeEditMarker();
   fillTimer();
 
   timer.every(100, drawScreenTime);
@@ -60,38 +68,60 @@ bool readKeypad(void*) {
     return true;
   }
 
-  Serial.print("Key: ");
-  Serial.println(key);
   if (isRunning) {
     if (key == '#') {
       isRunning = false;
-      minutes = 0;
-      seconds = 0;
-      time = 0;
+      editing = EditingTime;
       writeTime(time);
+      writeEditMarker();
       fillTimer();
     }
   } else {
-    if ('0' <= key && key <= '9') {
-      if (minutes > 9) {
-        minutes = 0;
-        seconds = 0;
+    if (key == '*') {
+      if (editing == EditingTime) {
+        editing = EditingPower;
+      } else if (editing == EditingPower) {
+        editing = EditingTime;
+      } else {
+        editing = EditingTime;
       }
-
-      minutes *= 10;
-      seconds *= 10;
-      minutes += seconds / 100;
-      seconds = seconds % 100;
-      seconds += key - '0';
-
-      time = (minutes * 60 + seconds) * 1000;
-      writeTime(time);
+      writeEditMarker();
     } else if (key == '#') {
       isRunning = true;
+      editing = EditingNone;
       startTime = millis();
+      writeEditMarker();
       fillTimer();
+    } else if ('0' <= key && key <= '9') {
+      if (editing == EditingTime) {
+        if (minutes > 9) {
+          minutes = 0;
+          seconds = 0;
+        }
+
+        minutes *= 10;
+        seconds *= 10;
+        minutes += seconds / 100;
+        seconds = seconds % 100;
+        seconds += key - '0';
+
+        time = (minutes * 60 + seconds) * 1000;
+        writeTime(time);
+      } else if (editing == EditingPower) {
+        if (power > 99) {
+          power = 0;
+        }
+
+        power *= 10;
+        power += key - '0';
+        if (power > 100) {
+          power = 100;
+        }
+        writePower();
+      }
     }
   }
+
   return true;
 }
 
@@ -136,7 +166,7 @@ void writeTime(long t) {
 }
 
 char previousPowerText[4] PROGMEM;
-void writePower(long power) {
+void writePower() {
 #define PRINT_CHAR(offset, index) \
   if (buffer[index] != previousPowerText[index]) { \
     if (previousPowerText[index]) { \
@@ -255,4 +285,30 @@ void clearTimerPortion(float percentage) {
   tft.endWrite();
 
   timerPortionCleared = percentage;
+}
+
+enum Editing previousEditing = EditingNone;
+void writeEditMarker() {
+#define EDITING_MARKER_HEIGHT 3
+
+#define DRAW_EDITING_TIME(color) tft.fillRect(62, 142, 116, EDITING_MARKER_HEIGHT, color);
+#define DRAW_EDITING_POWER(color) tft.fillRect(94, 178, 60, EDITING_MARKER_HEIGHT, color);
+
+  if (previousEditing == editing) {
+    return;
+  }
+
+  if (previousEditing == EditingTime) {
+    DRAW_EDITING_TIME(BG_COLOR);
+  } else if (previousEditing == EditingPower) {
+    DRAW_EDITING_POWER(BG_COLOR);
+  }
+
+  if (editing == EditingTime) {
+    DRAW_EDITING_TIME(TIMER_COLOR);
+  } else if (editing == EditingPower) {
+    DRAW_EDITING_POWER(TIMER_COLOR);
+  }
+
+  previousEditing = editing;
 }
