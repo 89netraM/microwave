@@ -1,5 +1,7 @@
 #include <Adafruit_GC9A01A.h>
 #include <Fonts/FreeSans24pt7b.h>
+#include <Fonts/FreeSans12pt7b.h>
+#include <Keypad.h>
 #include <arduino-timer.h>
 
 #define FG_COLOR GC9A01A_WHITE
@@ -12,61 +14,145 @@
 
 Adafruit_GC9A01A tft(10, 7, 11, 12, 8, 9);
 
-Timer<1> timer;
-long time = 120000;
-long startTime = -time - 1;
+const byte ROWS = 4;
+const byte COLS = 3;
+char keys[ROWS][COLS] = {
+  { '1', '2', '3' },
+  { '4', '5', '6' },
+  { '7', '8', '9' },
+  { '*', '0', '#' }
+};
+byte rowPins[ROWS] = { 19, 14, 15, 17 };
+byte colPins[COLS] = { 18, 20, 16 };
+Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
+
+Timer<2> timer;
+bool isRunning = false;
+long minutes = 0;
+long seconds = 0;
+long time = 0;
+long power = 100;
+long startTime = 0;
 
 void setup() {
   Serial.begin(9600);
   tft.begin();
-  tft.setFont(&FreeSans24pt7b);
-  tft.setTextWrap(false);
-  tft.setTextColor(FG_COLOR);
   tft.fillScreen(BG_COLOR);
+
+  tft.setFont(&FreeSans24pt7b);
   tft.drawChar(62 + 26 + 26, 136, ':', FG_COLOR, BG_COLOR, 1);
 
-  timer.every(100, drawScreen);
+  writePower(power);
+  writeTime(time);
+  fillTimer();
+
+  timer.every(100, drawScreenTime);
+  timer.every(100, readKeypad);
 }
 
 void loop() {
   timer.tick();
 }
 
-bool drawScreen(void*) {
-  long currentTime = millis();
-  long elapsedTime = currentTime - startTime;
-
-  if (elapsedTime > time) {
-    startTime = currentTime;
-    elapsedTime = 0;
-    fillTimer();
+bool readKeypad(void*) {
+  char key = keypad.getKey();
+  if (!key) {
+    return true;
   }
 
-  writeTime((time - elapsedTime) / 1000);
+  Serial.print("Key: ");
+  Serial.println(key);
+  if (isRunning) {
+    if (key == '#') {
+      isRunning = false;
+      minutes = 0;
+      seconds = 0;
+      time = 0;
+      writeTime(time);
+      fillTimer();
+    }
+  } else {
+    if ('0' <= key && key <= '9') {
+      if (minutes > 9) {
+        minutes = 0;
+        seconds = 0;
+      }
+
+      minutes *= 10;
+      seconds *= 10;
+      minutes += seconds / 100;
+      seconds = seconds % 100;
+      seconds += key - '0';
+
+      time = (minutes * 60 + seconds) * 1000;
+      writeTime(time);
+    } else if (key == '#') {
+      isRunning = true;
+      startTime = millis();
+      fillTimer();
+    }
+  }
+  return true;
+}
+
+bool drawScreenTime(void*) {
+  if (!isRunning) {
+    return true;
+  }
+
+  long currentTime = millis();
+  long elapsedTime = constrain(currentTime - startTime, 0, time);
+
+  writeTime(time - elapsedTime);
   clearTimerPortion(1.0 - (float)elapsedTime / (float)time);
 
   return true;
 }
 
-char previousText[4] PROGMEM;
-void writeTime(unsigned int seconds) {
+char previousTimeText[4] PROGMEM;
+void writeTime(long t) {
 #define PRINT_CHAR(offset, index) \
-  if (buffer[index] != previousText[index]) { \
-    if (previousText[index]) { \
-      tft.drawChar(62 + offset, 136, previousText[index], BG_COLOR, BG_COLOR, 1); \
+  if (buffer[index] != previousTimeText[index]) { \
+    if (previousTimeText[index]) { \
+      tft.drawChar(62 + offset, 136, previousTimeText[index], BG_COLOR, BG_COLOR, 1); \
     } \
     tft.drawChar(62 + offset, 136, buffer[index], FG_COLOR, BG_COLOR, 1); \
-    previousText[index] = buffer[index]; \
+    previousTimeText[index] = buffer[index]; \
   }
 
-  unsigned int minutes = seconds / 60;
-  seconds = seconds % 60;
+  long m = (t / 1000) / 60;
+  long s = (t / 1000) % 60;
+  if (m >= minutes) {
+    s += (m - minutes) * 60;
+    m = minutes;
+  }
   char buffer[4];
-  sprintf(buffer, "%02d%02d", minutes, seconds);
+  sprintf(buffer, "%02d%02d", m, s);
+  tft.setFont(&FreeSans24pt7b);
   PRINT_CHAR(0, 0);
   PRINT_CHAR(26, 1);
   PRINT_CHAR(26 + 26 + 12, 2);
   PRINT_CHAR(26 + 26 + 12 + 26, 3);
+}
+
+char previousPowerText[4] PROGMEM;
+void writePower(long power) {
+#define PRINT_CHAR(offset, index) \
+  if (buffer[index] != previousPowerText[index]) { \
+    if (previousPowerText[index]) { \
+      tft.drawChar(94 + offset, 172, previousPowerText[index], BG_COLOR, BG_COLOR, 1); \
+    } \
+    tft.drawChar(94 + offset, 172, buffer[index], FG_COLOR, BG_COLOR, 1); \
+    previousPowerText[index] = buffer[index]; \
+  }
+
+  char buffer[4];
+  sprintf(buffer, "%3d%%", power);
+  tft.setFont(&FreeSans12pt7b);
+  PRINT_CHAR(0, 0);
+  PRINT_CHAR(13, 1);
+  PRINT_CHAR(13 + 13, 2);
+  PRINT_CHAR(13 + 13 + 13, 3);
 }
 
 float timerPortionCleared = 1.0;
