@@ -1,0 +1,72 @@
+openapi: 3.0.3
+info:
+  title: Microwave
+  version: 1.0.0
+paths:
+  /state:
+    get:
+      summary: Get the state of the microwave
+      operationId: getState
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/State'
+    put:
+      summary: Update the state of the microwave
+      operationId: updateState
+      requestBody:
+        description: The partial state with updated values
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EditableState'
+        required: true
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/State'
+        '422':
+          description: List of properties with validation errors
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+                  enum:
+                    - minutes
+                    - seconds
+                    - power
+                    - isRunning
+
+components:
+  schemas:
+    EditableState:
+      type: object
+      properties:
+        minutes:
+          type: integer
+          example: 1
+        seconds:
+          type: integer
+          example: 25
+        power:
+          type: integer
+          example: 100
+        isRunning:
+          type: boolean
+          example: false
+    State:
+      allOf:
+        - $ref: '#/components/schemas/EditableState'
+        - type: object
+          properties:
+            remainingTimeInSeconds:
+              type: integer
+              example: 0

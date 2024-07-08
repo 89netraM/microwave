@@ -130,11 +130,11 @@
 			}
 		</style>
 		<script>
-			const initialIsRunning = false;
 			const initialMinutes = 0;
 			const initialSeconds = 0;
-			const initialRemainingInSeconds = 0;
 			const initialPower = 100;
+			const initialIsRunning = false;
+			const initialRemainingInSeconds = 0;
 		</script>
 	</head>
 	<body>
@@ -160,15 +160,21 @@
 			startButton.addEventListener("click", start, true);
 			const timeOutput = document.getElementById("timeOutput");
 			const timeInput = document.getElementById("timeInput");
+			timeInput.addEventListener("focus", () => hasSentTime = false, true);
 			timeInput.addEventListener("keypress", timePress, true);
+			timeInput.addEventListener("blur", sendTime, true);
 			const powerOutput = document.getElementById("powerOutput");
 			const powerInput = document.getElementById("powerInput");
+			powerInput.addEventListener("focus", () => hasSentPower = false, true);
 			powerInput.addEventListener("keypress", powerPress, true);
+			powerInput.addEventListener("blur", sendPower, true);
 
 			let internalIsRunning = initialIsRunning;
 			let internalMinutes = initialMinutes;
+			let hasSentTime = false;
 			let internalSeconds = initialSeconds;
-			let power = initialPower;
+			let internalPower = initialPower;
+			let hasSentPower = false;
 
 			let animation;
 
@@ -182,6 +188,11 @@
 			}
 
 			function timePress(e) {
+				if (e.key === "Enter") {
+					hasSentTime = false;
+					sendTime();
+				}
+
 				const number = parseInt(e.key);
 				if (number == null || isNaN(number)) {
 					return;
@@ -194,11 +205,10 @@
 
 				internalSeconds *= 10;
 				internalSeconds += number;
-				if (internalSeconds > 9) {
-					internalMinutes *= 10;
-					internalMinutes += Math.floor(internalSeconds / 100);
-					internalSeconds = internalSeconds % 100;
-				}
+
+				internalMinutes *= 10;
+				internalMinutes += Math.floor(internalSeconds / 100);
+				internalSeconds = internalSeconds % 100;
 
 				renderTime();
 			}
@@ -210,27 +220,32 @@
 			}
 
 			function powerPress(e) {
+				if (e.key === "Enter") {
+					hasSentPower = false;
+					sendPower();
+				}
+
 				const number = parseInt(e.key);
 				if (number == null || isNaN(number)) {
 					return;
 				}
 
-				if (power > 99) {
-					power = 0;
+				if (internalPower > 99) {
+					internalPower = 0;
 				}
 
-				power *= 10;
-				power += number;
+				internalPower *= 10;
+				internalPower += number;
 
-				if (power > 100) {
-					power = 100;
+				if (internalPower > 100) {
+					internalPower = 100;
 				}
 
 				renderPower();
 			}
 
 			function renderPower() {
-				powerOutput.innerText = power.toString();
+				powerOutput.innerText = internalPower.toString();
 			}
 
 			function animate(minutes, seconds, remaining) {
@@ -271,7 +286,16 @@
 				internalIsRunning = false;
 			}
 
-			function start() {
+			async function start() {
+				const response = await fetch("./state", {
+					method: "PUT",
+					body: JSON.stringify({
+						isRunning: !internalIsRunning,
+					}),
+				});
+				console.log("Start response: ", response);
+				const json = await response.json();
+				console.log("Start json: ", json);
 				if (!internalIsRunning) {
 					timeInput.disabled = true;
 					powerInput.disabled = true;
@@ -285,6 +309,37 @@
 					startButton.innerText = "Start";
 				}
 				internalIsRunning = !internalIsRunning;
+			}
+
+			async function sendTime() {
+				if (hasSentTime) {
+					return;
+				}
+
+				const response = await fetch("./state", {
+					method: "PUT",
+					body: JSON.stringify({
+						minutes: internalMinutes,
+						seconds: internalSeconds,
+					}),
+				});
+				const json = await response.json();
+				hasSentTime = true;
+			}
+
+			async function sendPower() {
+				if (hasSentPower) {
+					return;
+				}
+				
+				const response = await fetch("./state", {
+					method: "PUT",
+					body: JSON.stringify({
+						power: internalPower,
+					}),
+				});
+				const json = await response.json();
+				hasSentPower = true;
 			}
 		</script>
 	</body>
