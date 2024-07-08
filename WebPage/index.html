@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+		<title>Microwave</title>
+		<style>
+			:root {
+				--bg-color: rgb(0, 0, 0);
+				--fg-color: rgb(255, 255, 255);
+				--timer-color: rgb(123, 0, 123);
+			}
+
+			html,
+			body {
+				margin: 0px;
+				padding: 0px;
+				width: 100svw;
+				min-height: 100svh;
+				background-color: var(--bg-color);
+				color: var(--fg-color);
+				font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+				overflow: hidden;
+			}
+
+			* {
+				box-sizing: border-box;
+			}
+
+			body {
+				display: flex;
+				flex-direction: column;
+				gap: 10svmin;
+				align-items: center;
+				justify-content: center;
+			}
+
+			@property --p {
+				syntax: "<percentage>";
+				initial-value: 0%;
+				inherits: true;
+			}
+
+			@property --minutes {
+				syntax: "<integer>";
+				initial-value: 0;
+				inherits: true;
+			}
+
+			@property --seconds {
+				syntax: "<integer>";
+				initial-value: 0;
+				inherits: true;
+			}
+
+			@property --time {
+				syntax: "<integer>";
+				initial-value: 0;
+				inherits: true;
+			}
+
+			#timer {
+				width: 75svmin;
+				height: 75svmin;
+				border-radius: 100%;
+				border: 3.125svmin solid var(--timer-color);
+				display: flex;
+				flex-direction: column;
+				gap: 0.5svmin;
+				align-items: center;
+				justify-content: center;
+
+				mask: linear-gradient(white, white) padding-box,
+					conic-gradient(transparent var(--p), white 0%) border-box;
+
+				div {
+					flex-basis: 33%;
+					display: flex;
+					flex-direction: column;
+					align-items: center;
+
+					&:nth-child(2) {
+						justify-content: center;
+					}
+
+					&:nth-child(3) {
+						justify-content: flex-start;
+					}
+				}
+
+				label {
+					font-variant-numeric: tabular-nums;
+					padding: 0.5svmin 0;
+					border-bottom: 0.5svmin solid var(--bg-color);
+
+					&:focus-within {
+						filter: grayscale(0);
+						border-bottom-color: var(--timer-color);
+					}
+
+					&[for="timeInput"] {
+						font-size: 10svmin;
+						counter-reset: minutes min(round(to-zero, var(--time)) / 60, var(--minutes)) seconds calc(mod(var(--time), 60) + (round(to-zero, var(--time) / 60) - var(--minutes)) * 60);
+					}
+
+					&[for="powerInput"] {
+						font-size: 5svmin;
+
+						span {
+							width: 3ch;
+							text-align: end;
+							display: inline-block;
+						}
+					}
+
+					input[type=number] {
+						position: absolute;
+						opacity: 0;
+						width: 0px;
+					}
+				}
+			}
+
+			#timeOutputMinutes::after {
+				content: counter(minutes, decimal-leading-zero);
+			}
+
+			#timeOutputSeconds::after {
+				content: counter(seconds, decimal-leading-zero);
+			}
+		</style>
+		<script>
+			const initialIsRunning = false;
+			const initialMinutes = 0;
+			const initialSeconds = 0;
+			const initialRemainingInSeconds = 0;
+			const initialPower = 100;
+		</script>
+	</head>
+	<body>
+		<div id="timer">
+			<div></div>
+			<div>
+				<label for="timeInput">
+					<span id="timeOutputMinutes"></span>:<span id="timeOutputSeconds"></span>
+					<input id="timeInput" inputmode="decimal" pattern="[0-9]{1,4}" type="number" enterkeyhint="done" autocomplete="off">
+				</label>
+			</div>
+			<div>
+				<label for="powerInput">
+					<span id="powerOutput">100</span>%
+					<input id="powerInput" inputmode="decimal" pattern="[0-9]{1,4}" type="number" enterkeyhint="done" autocomplete="off">
+				</label>
+			</div>
+		</div>
+		<button id="start">Start</button>
+		<script>
+			const timer = document.getElementById("timer");
+			const startButton = document.getElementById("start");
+			startButton.addEventListener("click", start, true);
+			const timeOutput = document.getElementById("timeOutput");
+			const timeInput = document.getElementById("timeInput");
+			timeInput.addEventListener("keypress", timePress, true);
+			const powerOutput = document.getElementById("powerOutput");
+			const powerInput = document.getElementById("powerInput");
+			powerInput.addEventListener("keypress", powerPress, true);
+
+			let internalIsRunning = initialIsRunning;
+			let internalMinutes = initialMinutes;
+			let internalSeconds = initialSeconds;
+			let power = initialPower;
+
+			let animation;
+
+			if (initialIsRunning) {
+				timeInput.disabled = true;
+				powerInput.disabled = true;
+				animate(internalMinutes, internalSeconds, initialRemainingInSeconds);
+				startButton.innerText = "Stop";
+			} else {
+				renderTime();
+			}
+
+			function timePress(e) {
+				const number = parseInt(e.key);
+				if (number == null || isNaN(number)) {
+					return;
+				}
+
+				if (internalMinutes > 9) {
+					internalMinutes = 0;
+					internalSeconds = 0;
+				}
+
+				internalSeconds *= 10;
+				internalSeconds += number;
+				if (internalSeconds > 9) {
+					internalMinutes *= 10;
+					internalMinutes += Math.floor(internalSeconds / 100);
+					internalSeconds = internalSeconds % 100;
+				}
+
+				renderTime();
+			}
+
+			function renderTime() {
+				timer.style.setProperty("--minutes", internalMinutes);
+				timer.style.setProperty("--seconds", internalSeconds);
+				timer.style.setProperty("--time", internalMinutes * 60 + internalSeconds);
+			}
+
+			function powerPress(e) {
+				const number = parseInt(e.key);
+				if (number == null || isNaN(number)) {
+					return;
+				}
+
+				if (power > 99) {
+					power = 0;
+				}
+
+				power *= 10;
+				power += number;
+
+				if (power > 100) {
+					power = 100;
+				}
+
+				renderPower();
+			}
+
+			function renderPower() {
+				powerOutput.innerText = power.toString();
+			}
+
+			function animate(minutes, seconds, remaining) {
+				for (const anim of timer.getAnimations()) {
+					anim.cancel();
+				}
+				const initial = minutes * 60 + seconds;
+				const remainingMinutes = Math.floor(remaining / 60);
+				const remainingSeconds = remaining % 60;
+				timer.style.setProperty("--minutes", internalMinutes);
+				timer.style.setProperty("--seconds", internalSeconds);
+				animation = timer.animate(
+					[
+						{
+							"--p": `${Math.round((1.0 - (remaining / initial)) * 100)}%`,
+							"--time": remaining,
+							offset: 0,
+						},
+						{
+							"--p": "100%",
+							"--time": 0,
+							offset: 1,
+						},
+					],
+					{
+						duration: remaining * 1000,
+						iterations: 1,
+					}
+				);
+				animation.finished.then(onTimerEnd).catch(() => {});
+			}
+
+			function onTimerEnd() {
+				timeInput.disabled = false;
+				powerInput.disabled = false;
+				renderTime();
+				startButton.innerText = "Start";
+				internalIsRunning = false;
+			}
+
+			function start() {
+				if (!internalIsRunning) {
+					timeInput.disabled = true;
+					powerInput.disabled = true;
+					animate(internalMinutes, internalSeconds, internalMinutes * 60 + internalSeconds);
+					startButton.innerText = "Stop";
+				} else {
+					timeInput.disabled = false;
+					powerInput.disabled = false;
+					animation?.cancel();
+					renderTime();
+					startButton.innerText = "Start";
+				}
+				internalIsRunning = !internalIsRunning;
+			}
+		</script>
+	</body>
+</html>

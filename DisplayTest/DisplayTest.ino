@@ -152,7 +152,7 @@ void writeTime(long t) {
 
   long m = (t / 1000) / 60;
   long s = (t / 1000) % 60;
-  if (m >= minutes) {
+  if (m > minutes) {
     s += (m - minutes) * 60;
     m = minutes;
   }
