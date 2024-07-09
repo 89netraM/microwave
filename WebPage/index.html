@@ -100,7 +100,7 @@
 
 					&[for="timeInput"] {
 						font-size: 10svmin;
-						counter-reset: minutes min(round(to-zero, var(--time)) / 60, var(--minutes)) seconds calc(mod(var(--time), 60) + (round(to-zero, var(--time) / 60) - var(--minutes)) * 60);
+						counter-reset: minutes min(round(down, var(--time) / 60), var(--minutes)) seconds calc(mod(var(--time), 60) + max(round(down, var(--time) / 60 - var(--minutes)) * 60, 0));
 					}
 
 					&[for="powerInput"] {
@@ -294,15 +294,15 @@
 			}
 
 			async function start() {
-				const response = await fetch("./state", {
-					method: "PUT",
-					body: JSON.stringify({
-						isRunning: !internalIsRunning,
-					}),
-				});
-				console.log("Start response: ", response);
-				const json = await response.json();
-				console.log("Start json: ", json);
+				// const response = await fetch("./state", {
+				// 	method: "PUT",
+				// 	body: JSON.stringify({
+				// 		isRunning: !internalIsRunning,
+				// 	}),
+				// });
+				// console.log("Start response: ", response);
+				// const json = await response.json();
+				// console.log("Start json: ", json);
 				if (!internalIsRunning) {
 					timeInput.disabled = true;
 					powerInput.disabled = true;
@@ -323,14 +323,14 @@
 					return;
 				}
 
-				const response = await fetch("./state", {
-					method: "PUT",
-					body: JSON.stringify({
-						minutes: internalMinutes,
-						seconds: internalSeconds,
-					}),
-				});
-				const json = await response.json();
+				// const response = await fetch("./state", {
+				// 	method: "PUT",
+				// 	body: JSON.stringify({
+				// 		minutes: internalMinutes,
+				// 		seconds: internalSeconds,
+				// 	}),
+				// });
+				// const json = await response.json();
 				hasSentTime = true;
 			}
 
@@ -338,14 +338,14 @@
 				if (hasSentPower) {
 					return;
 				}
-				
-				const response = await fetch("./state", {
-					method: "PUT",
-					body: JSON.stringify({
-						power: internalPower,
-					}),
-				});
-				const json = await response.json();
+
+				// const response = await fetch("./state", {
+				// 	method: "PUT",
+				// 	body: JSON.stringify({
+				// 		power: internalPower,
+				// 	}),
+				// });
+				// const json = await response.json();
 				hasSentPower = true;
 			}
 		</script>
