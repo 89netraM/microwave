@@ -121,27 +121,31 @@ bool handle_client(void*) {
   drawWiFiSymbol(BG_COLOR);
 
   WiFiClient client = server.available();
-  if (client) {
-    String currentLine = "";
-    while (client.connected()) {
-      if (client.available()) {
-        char c = client.read();
-        if (c == '\n') {
-          if (currentLine.startsWith("GET / ")) {
-            write_web_page(&client);
-          } else if (currentLine.startsWith("GET /state ")) {
-            write_state_json(&client);
-          } else if (currentLine.startsWith("PUT /state ")) {
-            update_and_write_state_json(&client);
-          } else {
-            write_404(&client);
-          }
-          break;
-        } else if (c != '\r') {
-          currentLine += c;
+  if (!client || client.status() != ESTABLISHED) {
+    return true;
+  }
+
+  String currentLine = "";
+  while (client.connected()) {
+    if (client.available()) {
+      char c = client.read();
+      if (c == '\n') {
+        if (currentLine.startsWith("GET / ")) {
+          write_web_page(&client);
+        } else if (currentLine.startsWith("GET /state ")) {
+          write_state_json(&client);
+        } else if (currentLine.startsWith("PUT /state ")) {
+          update_and_write_state_json(&client);
+        } else {
+          write_404(&client);
         }
+        break;
+      } else if (c != '\r') {
+        currentLine += c;
       }
     }
+  }
+  if (client.status() == ESTABLISHED) {
     client.flush();
     client.stop();
   }
@@ -149,23 +153,20 @@ bool handle_client(void*) {
   return true;
 }
 
-void read_to_end(WiFiClient* client) {
-  Serial.println("Reading to end");
-  while (client->available()) {
-    char c = client->read();
-    Serial.print(c);
-  }
-  Serial.println();
-}
-
 void write_404(WiFiClient* client) {
-  read_to_end(client);
+  if (client->status() != ESTABLISHED) {
+    return;
+  }
+
   client->println("HTTP/1.1 404 Not Found");
   client->println();
 }
 
 void write_web_page(WiFiClient* client) {
-  read_to_end(client);
+  if (client->status() != ESTABLISHED) {
+    return;
+  }
+
   client->println("HTTP/1.1 200 OK");
   client->println("Content-Type: text/html");
   client->println();
@@ -196,59 +197,44 @@ void write_web_page(WiFiClient* client) {
 }
 
 void write_state_json(WiFiClient* client) {
-  read_to_end(client);
-  Serial.println("HTTP/1.1 200 OK");
+  if (client->status() != ESTABLISHED) {
+    return;
+  }
+
   client->println("HTTP/1.1 200 OK");
-  Serial.println("Content-Type: application/json");
   client->println("Content-Type: application/json");
-  Serial.println();
   client->println();
 
-  Serial.print("{\"minutes\":");
   client->print("{\"minutes\":");
-  Serial.print(minutes);
   client->print(minutes);
-  Serial.print(",");
   client->print(",");
 
-  Serial.print("\"seconds\":");
   client->print("\"seconds\":");
-  Serial.print(seconds);
   client->print(seconds);
-  Serial.print(",");
   client->print(",");
 
-  Serial.print("\"power\":");
   client->print("\"power\":");
-  Serial.print(power);
   client->print(power);
-  Serial.print(",");
   client->print(",");
 
-  Serial.print("\"isRunning\":");
   client->print("\"isRunning\":");
-  Serial.print(isRunning ? "true" : "false");
   client->print(isRunning ? "true" : "false");
-  Serial.print(",");
   client->print(",");
 
-  Serial.print("\"remainingInSeconds\":");
   client->print("\"remainingInSeconds\":");
-  Serial.print(isRunning ? (time - constrain(millis() - startTime, 0, time)) / 1000 : 0);
   client->print(isRunning ? (time - constrain(millis() - startTime, 0, time)) / 1000 : 0);
-  Serial.println("}");
   client->println("}");
 }
 
-#define JSON_VALUE_NOT_AVAILABLE 0x4000000000000000
-#define JSON_VALUE_INVALID 0x8000000000000000
+#define JSON_VALUE_NOT_AVAILABLE 0x40000000
+#define JSON_VALUE_INVALID 0x80000000
 void update_and_write_state_json(WiFiClient* client) {
   char readBuffer[13] = "          \r\n";
   long m = JSON_VALUE_NOT_AVAILABLE;
   long s = JSON_VALUE_NOT_AVAILABLE;
   long p = JSON_VALUE_NOT_AVAILABLE;
   long r = JSON_VALUE_NOT_AVAILABLE;
-  while (client->available()) {
+  while (client->status() == ESTABLISHED && client->available() > 0) {
     read_single_byte(client, readBuffer);
 
     if (strcmp(readBuffer + 2, "\"minutes\":") == 0) {
@@ -264,7 +250,9 @@ void update_and_write_state_json(WiFiClient* client) {
 
   if ((m & JSON_VALUE_NOT_AVAILABLE) == 0) {
     if (isRunning) {
-      read_to_end(client);
+      if (client->status() != ESTABLISHED) {
+        return;
+      }
       client->println("HTTP/1.1 400 Bad Request");
       client->println();
       return;
@@ -272,7 +260,6 @@ void update_and_write_state_json(WiFiClient* client) {
     if (0 <= m && m <= 99) {
       minutes = m;
       time = (minutes * 60 + seconds) * 1000;
-      writeTime(time);
     } else {
       m = JSON_VALUE_INVALID;
     }
@@ -280,7 +267,9 @@ void update_and_write_state_json(WiFiClient* client) {
 
   if ((s & JSON_VALUE_NOT_AVAILABLE) == 0) {
     if (isRunning) {
-      read_to_end(client);
+      if (client->status() != ESTABLISHED) {
+        return;
+      }
       client->println("HTTP/1.1 400 Bad Request");
       client->println();
       return;
@@ -288,7 +277,6 @@ void update_and_write_state_json(WiFiClient* client) {
     if (0 <= s && s <= 99) {
       seconds = s;
       time = (minutes * 60 + seconds) * 1000;
-      writeTime(time);
     } else {
       s = JSON_VALUE_INVALID;
     }
@@ -296,14 +284,15 @@ void update_and_write_state_json(WiFiClient* client) {
 
   if ((p & JSON_VALUE_NOT_AVAILABLE) == 0) {
     if (isRunning) {
-      read_to_end(client);
+      if (client->status() != ESTABLISHED) {
+        return;
+      }
       client->println("HTTP/1.1 400 Bad Request");
       client->println();
       return;
     }
     if (1 <= p && p <= 100) {
       power = p;
-      writePower();
     } else {
       p = JSON_VALUE_INVALID;
     }
@@ -316,20 +305,17 @@ void update_and_write_state_json(WiFiClient* client) {
         isRunning = true;
         editing = EditingNone;
         startTime = millis();
-        writeEditMarker();
-        fillTimer();
       } else {
         isRunning = false;
         editing = EditingTime;
-        writeTime(time);
-        writeEditMarker();
-        fillTimer();
       }
     }
   }
 
   if (((m | s | p | r) & JSON_VALUE_INVALID) == JSON_VALUE_INVALID) {
-    read_to_end(client);
+    if (client->status() != ESTABLISHED) {
+      return;
+    }
     client->println("HTTP/1.1 422 Unprocessable Content");
     client->println();
     client->print("[");
@@ -355,9 +341,28 @@ void update_and_write_state_json(WiFiClient* client) {
       client->print("\"isRunning\"");
     }
     client->println("]");
-  } else {
-    read_to_end(client);
-    write_state_json(client);
+    return;
+  }
+
+  write_state_json(client);
+  if (client->status() == ESTABLISHED) {
+    client->flush();
+    client->stop();
+  }
+
+  if ((m & JSON_VALUE_NOT_AVAILABLE) == 0) {
+    writeTime(time);
+  }
+  if ((s & JSON_VALUE_NOT_AVAILABLE) == 0) {
+    writeTime(time);
+  }
+  if ((p & JSON_VALUE_NOT_AVAILABLE) == 0) {
+    writePower();
+  }
+  if ((r & JSON_VALUE_NOT_AVAILABLE) == 0) {
+    writeTime(time);
+    writeEditMarker();
+    fillTimer();
   }
 }
 
@@ -402,7 +407,7 @@ long read_bool(WiFiClient* client, char* readBuffer) {
 
 int read_json_value(WiFiClient* client, char* readBuffer) {
   int read = 0;
-  while (client->available()) {
+  while (client->status() == ESTABLISHED) {
     char c = client->read();
     if (c == '\n' || c == '\r' || c == '\t' || c == ' ') {
       continue;
