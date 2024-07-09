@@ -43,6 +43,7 @@ int LIGHTS = 2;
 int MICRO = 3;
 
 #define POWER_PERIOD 10000
+#define POWER_MUL (POWER_PERIOD / 100)
 
 Timer<4> timer;
 bool isRunning = false;
@@ -63,6 +64,12 @@ void setup() {
   // USB Logging
   Serial.begin(9600);
 
+  // Set outputs
+  pinMode(LIGHTS, OUTPUT);
+  pinMode(MICRO, OUTPUT);
+  pinMode(INDICATOR, OUTPUT);
+  digitalWrite(INDICATOR, PinStatus::HIGH);
+
   // Setup WiFi and server
   WiFi.setHostname("microwave");
 
@@ -79,12 +86,6 @@ void setup() {
   fillTimer();
 
   drawWiFiSymbol(WIFI_ERROR_COLOR);
-
-  // Set outputs
-  pinMode(LIGHTS, OUTPUT);
-  pinMode(MICRO, OUTPUT);
-  pinMode(INDICATOR, OUTPUT);
-  digitalWrite(INDICATOR, PinStatus::HIGH);
 
   // Activate timer
   timer.every(100, drawScreenTime);
@@ -445,6 +446,8 @@ char read_single_byte(WiFiClient* client, char* readBuffer) {
 
 bool handle_timer(void*) {
   if (!isRunning) {
+    digitalWrite(MICRO, PinStatus::LOW);
+    digitalWrite(LIGHTS, PinStatus::LOW);
     return true;
   }
 
@@ -465,8 +468,9 @@ bool handle_timer(void*) {
     fillTimer();
     return true;
   }
+  digitalWrite(LIGHTS, PinStatus::HIGH);
 
-  if (remainingTime % POWER_PERIOD < power) {
+  if ((remainingTime % POWER_PERIOD) < (power * POWER_MUL)) {
     digitalWrite(MICRO, PinStatus::HIGH);
   } else {
     digitalWrite(MICRO, PinStatus::LOW);
