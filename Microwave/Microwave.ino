@@ -68,6 +68,8 @@ void setup() {
   pinMode(LIGHTS, OUTPUT);
   pinMode(MICRO, OUTPUT);
   pinMode(INDICATOR, OUTPUT);
+  digitalWrite(MICRO, PinStatus::LOW);
+  digitalWrite(LIGHTS, PinStatus::LOW);
   digitalWrite(INDICATOR, PinStatus::HIGH);
 
   // Setup WiFi and server
