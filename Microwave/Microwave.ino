@@ -132,6 +132,8 @@ bool handle_client(void*) {
       if (c == '\n') {
         if (currentLine.startsWith("GET / ")) {
           write_web_page(&client);
+        } else if (currentLine.startsWith("GET /swagger.json ")) {
+          write_swagger(&client);
         } else if (currentLine.startsWith("GET /state ")) {
           write_state_json(&client);
         } else if (currentLine.startsWith("PUT /state ")) {
@@ -224,6 +226,20 @@ void write_state_json(WiFiClient* client) {
   client->print("\"remainingInSeconds\":");
   client->print(isRunning ? (time - constrain(millis() - startTime, 0, time)) / 1000 : 0);
   client->println("}");
+}
+
+void write_swagger(WiFiClient* client) {
+  if (client->status() != ESTABLISHED) {
+    return;
+  }
+
+  client->println("HTTP/1.1 200 OK");
+  client->println("Content-Type: application/json");
+  client->println();
+
+  client->print(SWAGGER_FIRST);
+  client->print(WiFi.localIP());
+  client->println(SWAGGER_SECOND);
 }
 
 #define JSON_VALUE_NOT_AVAILABLE 0x40000000

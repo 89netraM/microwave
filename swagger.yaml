@@ -31,6 +31,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/State'
+        '400':
+          description: >-
+            Returned when attempting to set minutes, seconds, or power, while
+            running.
         '422':
           description: List of properties with validation errors
           content:
