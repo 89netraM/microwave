@@ -1,4 +1,5 @@
-#include <WiFiNINA.h>
+#include <BetterWiFiNINA.h>
+#include <errno.h>
 #include <arduino-timer.h>
 
 #include <Adafruit_GC9A01A.h>
@@ -13,7 +14,7 @@
 char ssid[] = SECRET_SSID;
 char pass[] = SECRET_PASS;
 
-WiFiServer server(80);
+WiFiSocket server(WiFiSocket::Type::Stream, WiFiSocket::Protocol::TCP);
 
 #define FG_COLOR GC9A01A_WHITE
 #define TIMER_COLOR GC9A01A_PURPLE
@@ -108,319 +109,348 @@ bool handle_client(void*) {
     }
     drawWiFiSymbol(WIFI_CONNECTING_COLOR);
     previousWiFiConnectionAttempt = currentTime;
-    if (WiFi.begin(ssid, pass) == WL_CONNECTED) {
-      IPAddress ip = WiFi.localIP();
-      Serial.print("IP Address: ");
-      Serial.println(ip);
-      server.begin();
-    } else {
+    if (WiFi.begin(ssid, pass) != WL_CONNECTED) {
+      Serial.println("Could not connect to WiFi");
+      drawWiFiSymbol(WIFI_ERROR_COLOR);
+      return true;
+    }
+    IPAddress ip = WiFi.localIP();
+    Serial.print("IP Address: ");
+    Serial.println(ip);
+    if (!server.bind(80)) {
+      Serial.print("Binding server socket failed: error ");
+      Serial.println(WiFiSocket::lastError());
+      drawWiFiSymbol(WIFI_ERROR_COLOR);
+      return true;
+    }
+    if (!server.listen(5)) {
+      Serial.print("Listen on server socket failed: error ");
+      Serial.println(WiFiSocket::lastError());
       drawWiFiSymbol(WIFI_ERROR_COLOR);
       return true;
     }
   }
   drawWiFiSymbol(BG_COLOR);
 
-  WiFiClient client = server.available();
-  if (client) {
-    String currentLine = "";
-    while (client.connected()) {
-      if (client.available()) {
-        char c = client.read();
-        if (c == '\n') {
-          if (currentLine.startsWith("GET / ")) {
-            write_web_page(&client);
-          } else if (currentLine.startsWith("GET /state ")) {
-            write_state_json(&client);
-          } else if (currentLine.startsWith("PUT /state ")) {
-            update_and_write_state_json(&client);
-          } else {
-            write_404(&client);
-          }
-          break;
-        } else if (c != '\r') {
-          currentLine += c;
-        }
-      }
-    }
-    client.flush();
-    client.stop();
+  IPAddress addr;
+  uint16_t port;
+  WiFiSocket client = server.accept(addr, port);
+  if (!client) {
+    Serial.print("Accept on server socket failed: error ");
+    Serial.println(WiFiSocket::lastError());
+    return true;
   }
+  if (!client.setNonBlocking(true)) {
+    Serial.print("Setting socket to non-blocking failed: error ");
+    Serial.println(WiFiSocket::lastError());
+    return true;
+  }
+
+  char lineBuffer[11];
+READ:
+  auto read = client.recv(lineBuffer, sizeof(lineBuffer));
+  if (read < 0) {
+    auto err = WiFiSocket::lastError();
+    if (err == EWOULDBLOCK) {
+      goto READ;
+    }
+    Serial.print("reading from socket failed with error: ");
+    Serial.println(err);
+    return true;
+  }
+  if (strcmp(lineBuffer, "GET / ") == 0) {
+    // write_web_page(&client);
+  } else if (strcmp(lineBuffer, "GET /state ") == 0) {
+    // write_state_json(&client);
+  } else if (strcmp(lineBuffer, "PUT /state ") == 0) {
+    // update_and_write_state_json(&client);
+  } else {
+    write_404(&client);
+  }
+  client.close();
 
   return true;
 }
 
-void read_to_end(WiFiClient* client) {
-  Serial.println("Reading to end");
-  while (client->available()) {
-    char c = client->read();
-    Serial.print(c);
-  }
-  Serial.println();
+void write_404(WiFiSocket* client) {
+  write_to_client(client, "HTTP/1.1 404 Not Found\r\n");
 }
 
-void write_404(WiFiClient* client) {
-  read_to_end(client);
-  client->println("HTTP/1.1 404 Not Found");
-  client->println();
-}
-
-void write_web_page(WiFiClient* client) {
-  read_to_end(client);
-  client->println("HTTP/1.1 200 OK");
-  client->println("Content-Type: text/html");
-  client->println();
-
-  client->print(INDEX_HTML_HEAD);
-
-  client->print("const initialMinutes = ");
-  client->print(minutes);
-  client->print(";");
-
-  client->print("const initialSeconds = ");
-  client->print(seconds);
-  client->print(";");
-
-  client->print("const initialPower = ");
-  client->print(power);
-  client->print(";");
-
-  client->print("const initialIsRunning = ");
-  client->print(isRunning ? "true" : "false");
-  client->print(";");
-
-  client->print("const initialRemainingInSeconds = ");
-  client->print(isRunning ? (time - constrain(millis() - startTime, 0, time)) / 1000 : 0);
-  client->print(";");
-
-  client->println(INDEX_HTML_REST);
-}
-
-void write_state_json(WiFiClient* client) {
-  read_to_end(client);
-  Serial.println("HTTP/1.1 200 OK");
-  client->println("HTTP/1.1 200 OK");
-  Serial.println("Content-Type: application/json");
-  client->println("Content-Type: application/json");
-  Serial.println();
-  client->println();
-
-  Serial.print("{\"minutes\":");
-  client->print("{\"minutes\":");
-  Serial.print(minutes);
-  client->print(minutes);
-  Serial.print(",");
-  client->print(",");
-
-  Serial.print("\"seconds\":");
-  client->print("\"seconds\":");
-  Serial.print(seconds);
-  client->print(seconds);
-  Serial.print(",");
-  client->print(",");
-
-  Serial.print("\"power\":");
-  client->print("\"power\":");
-  Serial.print(power);
-  client->print(power);
-  Serial.print(",");
-  client->print(",");
-
-  Serial.print("\"isRunning\":");
-  client->print("\"isRunning\":");
-  Serial.print(isRunning ? "true" : "false");
-  client->print(isRunning ? "true" : "false");
-  Serial.print(",");
-  client->print(",");
-
-  Serial.print("\"remainingInSeconds\":");
-  client->print("\"remainingInSeconds\":");
-  Serial.print(isRunning ? (time - constrain(millis() - startTime, 0, time)) / 1000 : 0);
-  client->print(isRunning ? (time - constrain(millis() - startTime, 0, time)) / 1000 : 0);
-  Serial.println("}");
-  client->println("}");
-}
-
-#define JSON_VALUE_NOT_AVAILABLE 0x4000000000000000
-#define JSON_VALUE_INVALID 0x8000000000000000
-void update_and_write_state_json(WiFiClient* client) {
-  char readBuffer[13] = "          \r\n";
-  long m = JSON_VALUE_NOT_AVAILABLE;
-  long s = JSON_VALUE_NOT_AVAILABLE;
-  long p = JSON_VALUE_NOT_AVAILABLE;
-  long r = JSON_VALUE_NOT_AVAILABLE;
-  while (client->available()) {
-    read_single_byte(client, readBuffer);
-
-    if (strcmp(readBuffer + 2, "\"minutes\":") == 0) {
-      m = read_number(client, readBuffer);
-    } else if (strcmp(readBuffer + 2, "\"seconds\":") == 0) {
-      s = read_number(client, readBuffer);
-    } else if (strcmp(readBuffer + 4, "\"power\":") == 0) {
-      p = read_number(client, readBuffer);
-    } else if (strcmp(readBuffer, "\"isRunning\":") == 0) {
-      r = read_bool(client, readBuffer);
-    }
-  }
-
-  if ((m & JSON_VALUE_NOT_AVAILABLE) == 0) {
-    if (isRunning) {
-      read_to_end(client);
-      client->println("HTTP/1.1 400 Bad Request");
-      client->println();
+void write_to_client(WiFiSocket* client, char* data) {
+  size_t length = strlen(data);
+  size_t written = 0;
+  while (written < length) {
+    auto sent = client->send(data + written, length - written);
+    if (sent < 0) {
+      auto err = WiFiSocket::lastError();
+      if (err == EWOULDBLOCK) {
+        continue;
+      }
+      Serial.print("writing to socket failed with error: ");
+      Serial.println(err);
       return;
     }
-    if (0 <= m && m <= 99) {
-      minutes = m;
-      time = (minutes * 60 + seconds) * 1000;
-      writeTime(time);
-    } else {
-      m = JSON_VALUE_INVALID;
-    }
-  }
-
-  if ((s & JSON_VALUE_NOT_AVAILABLE) == 0) {
-    if (isRunning) {
-      read_to_end(client);
-      client->println("HTTP/1.1 400 Bad Request");
-      client->println();
-      return;
-    }
-    if (0 <= s && s <= 99) {
-      seconds = s;
-      time = (minutes * 60 + seconds) * 1000;
-      writeTime(time);
-    } else {
-      s = JSON_VALUE_INVALID;
-    }
-  }
-
-  if ((p & JSON_VALUE_NOT_AVAILABLE) == 0) {
-    if (isRunning) {
-      read_to_end(client);
-      client->println("HTTP/1.1 400 Bad Request");
-      client->println();
-      return;
-    }
-    if (1 <= p && p <= 100) {
-      power = p;
-      writePower();
-    } else {
-      p = JSON_VALUE_INVALID;
-    }
-  }
-
-  if ((r & JSON_VALUE_NOT_AVAILABLE) == 0) {
-    bool rb = r & 1 == 1;
-    if (isRunning != rb) {
-      if (rb) {
-        isRunning = true;
-        editing = EditingNone;
-        startTime = millis();
-        writeEditMarker();
-        fillTimer();
-      } else {
-        isRunning = false;
-        editing = EditingTime;
-        writeTime(time);
-        writeEditMarker();
-        fillTimer();
-      }
-    }
-  }
-
-  if (((m | s | p | r) & JSON_VALUE_INVALID) == JSON_VALUE_INVALID) {
-    read_to_end(client);
-    client->println("HTTP/1.1 422 Unprocessable Content");
-    client->println();
-    client->print("[");
-    if ((m & JSON_VALUE_INVALID) == JSON_VALUE_INVALID) {
-      client->print("\"minutes\"");
-    }
-    if ((s & JSON_VALUE_INVALID) == JSON_VALUE_INVALID) {
-      if ((m & JSON_VALUE_INVALID) == JSON_VALUE_INVALID) {
-        client->print(",");
-      }
-      client->print("\"seconds\"");
-    }
-    if ((p & JSON_VALUE_INVALID) == JSON_VALUE_INVALID) {
-      if (((m | s) & JSON_VALUE_INVALID) == JSON_VALUE_INVALID) {
-        client->print(",");
-      }
-      client->print("\"power\"");
-    }
-    if ((r & JSON_VALUE_INVALID) == JSON_VALUE_INVALID) {
-      if (((m | s | p) & JSON_VALUE_INVALID) == JSON_VALUE_INVALID) {
-        client->print(",");
-      }
-      client->print("\"isRunning\"");
-    }
-    client->println("]");
-  } else {
-    read_to_end(client);
-    write_state_json(client);
+    written += sent;
   }
 }
 
-long read_number(WiFiClient* client, char* readBuffer) {
-  read_json_value(client, readBuffer);
-  int end = 11;
-  while (true) {
-    if (end < 0) {
-      return JSON_VALUE_INVALID;
-    }
-    if ('0' <= readBuffer[end] && readBuffer[end] <= '9') {
-      break;
-    }
-    end--;
-  }
-  long value = 0;
-  long mul = 1;
-  while (true) {
-    if (end < 0) {
-      return JSON_VALUE_INVALID;
-    }
-    if ('0' <= readBuffer[end] && readBuffer[end] <= '9') {
-      value += (readBuffer[end] - '0') * mul;
-    } else {
-      return value;
-    }
-    end--;
-    mul *= 10;
-  }
-}
+// void write_web_page(WiFiSocket* client) {
+//   read_to_end(client);
+//   client->println("HTTP/1.1 200 OK");
+//   client->println("Content-Type: text/html");
+//   client->println();
 
-long read_bool(WiFiClient* client, char* readBuffer) {
-  read_json_value(client, readBuffer);
-  if (readBuffer[6] == 'f' && readBuffer[7] == 'a' && readBuffer[8] == 'l' && readBuffer[9] == 's' && readBuffer[10] == 'e') {
-    return 0;
-  } else if (readBuffer[7] == 't' && readBuffer[8] == 'r' && readBuffer[9] == 'u' && readBuffer[10] == 'e') {
-    return 1;
-  } else {
-    return JSON_VALUE_INVALID;
-  }
-}
+//   client->print(INDEX_HTML_HEAD);
 
-int read_json_value(WiFiClient* client, char* readBuffer) {
-  int read = 0;
-  while (client->available()) {
-    char c = client->read();
-    if (c == '\n' || c == '\r' || c == '\t' || c == ' ') {
-      continue;
-    }
-    memmove(readBuffer, readBuffer + 1, 11);
-    readBuffer[11] = c;
-    read++;
-    if (c == ',' || c == '}') {
-      return read;
-    }
-  }
-  return -read - 1;
-}
+//   client->print("const initialMinutes = ");
+//   client->print(minutes);
+//   client->print(";");
 
-char read_single_byte(WiFiClient* client, char* readBuffer) {
-  memmove(readBuffer, readBuffer + 1, 11);
-  return readBuffer[11] = client->read();
-}
+//   client->print("const initialSeconds = ");
+//   client->print(seconds);
+//   client->print(";");
+
+//   client->print("const initialPower = ");
+//   client->print(power);
+//   client->print(";");
+
+//   client->print("const initialIsRunning = ");
+//   client->print(isRunning ? "true" : "false");
+//   client->print(";");
+
+//   client->print("const initialRemainingInSeconds = ");
+//   client->print(isRunning ? (time - constrain(millis() - startTime, 0, time)) / 1000 : 0);
+//   client->print(";");
+
+//   client->println(INDEX_HTML_REST);
+// }
+
+// void write_state_json(WiFiSocket* client) {
+//   read_to_end(client);
+//   Serial.println("HTTP/1.1 200 OK");
+//   client->println("HTTP/1.1 200 OK");
+//   Serial.println("Content-Type: application/json");
+//   client->println("Content-Type: application/json");
+//   Serial.println();
+//   client->println();
+
+//   Serial.print("{\"minutes\":");
+//   client->print("{\"minutes\":");
+//   Serial.print(minutes);
+//   client->print(minutes);
+//   Serial.print(",");
+//   client->print(",");
+
+//   Serial.print("\"seconds\":");
+//   client->print("\"seconds\":");
+//   Serial.print(seconds);
+//   client->print(seconds);
+//   Serial.print(",");
+//   client->print(",");
+
+//   Serial.print("\"power\":");
+//   client->print("\"power\":");
+//   Serial.print(power);
+//   client->print(power);
+//   Serial.print(",");
+//   client->print(",");
+
+//   Serial.print("\"isRunning\":");
+//   client->print("\"isRunning\":");
+//   Serial.print(isRunning ? "true" : "false");
+//   client->print(isRunning ? "true" : "false");
+//   Serial.print(",");
+//   client->print(",");
+
+//   Serial.print("\"remainingInSeconds\":");
+//   client->print("\"remainingInSeconds\":");
+//   Serial.print(isRunning ? (time - constrain(millis() - startTime, 0, time)) / 1000 : 0);
+//   client->print(isRunning ? (time - constrain(millis() - startTime, 0, time)) / 1000 : 0);
+//   Serial.println("}");
+//   client->println("}");
+// }
+
+// #define JSON_VALUE_NOT_AVAILABLE 0x4000000000000000
+// #define JSON_VALUE_INVALID 0x8000000000000000
+// void update_and_write_state_json(WiFiSocket* client) {
+//   char readBuffer[13] = "          \r\n";
+//   long m = JSON_VALUE_NOT_AVAILABLE;
+//   long s = JSON_VALUE_NOT_AVAILABLE;
+//   long p = JSON_VALUE_NOT_AVAILABLE;
+//   long r = JSON_VALUE_NOT_AVAILABLE;
+//   while (client->available()) {
+//     read_single_byte(client, readBuffer);
+
+//     if (strcmp(readBuffer + 2, "\"minutes\":") == 0) {
+//       m = read_number(client, readBuffer);
+//     } else if (strcmp(readBuffer + 2, "\"seconds\":") == 0) {
+//       s = read_number(client, readBuffer);
+//     } else if (strcmp(readBuffer + 4, "\"power\":") == 0) {
+//       p = read_number(client, readBuffer);
+//     } else if (strcmp(readBuffer, "\"isRunning\":") == 0) {
+//       r = read_bool(client, readBuffer);
+//     }
+//   }
+
+//   if ((m & JSON_VALUE_NOT_AVAILABLE) == 0) {
+//     if (isRunning) {
+//       read_to_end(client);
+//       client->println("HTTP/1.1 400 Bad Request");
+//       client->println();
+//       return;
+//     }
+//     if (0 <= m && m <= 99) {
+//       minutes = m;
+//       time = (minutes * 60 + seconds) * 1000;
+//       writeTime(time);
+//     } else {
+//       m = JSON_VALUE_INVALID;
+//     }
+//   }
+
+//   if ((s & JSON_VALUE_NOT_AVAILABLE) == 0) {
+//     if (isRunning) {
+//       read_to_end(client);
+//       client->println("HTTP/1.1 400 Bad Request");
+//       client->println();
+//       return;
+//     }
+//     if (0 <= s && s <= 99) {
+//       seconds = s;
+//       time = (minutes * 60 + seconds) * 1000;
+//       writeTime(time);
+//     } else {
+//       s = JSON_VALUE_INVALID;
+//     }
+//   }
+
+//   if ((p & JSON_VALUE_NOT_AVAILABLE) == 0) {
+//     if (isRunning) {
+//       read_to_end(client);
+//       client->println("HTTP/1.1 400 Bad Request");
+//       client->println();
+//       return;
+//     }
+//     if (1 <= p && p <= 100) {
+//       power = p;
+//       writePower();
+//     } else {
+//       p = JSON_VALUE_INVALID;
+//     }
+//   }
+
+//   if ((r & JSON_VALUE_NOT_AVAILABLE) == 0) {
+//     bool rb = r & 1 == 1;
+//     if (isRunning != rb) {
+//       if (rb) {
+//         isRunning = true;
+//         editing = EditingNone;
+//         startTime = millis();
+//         writeEditMarker();
+//         fillTimer();
+//       } else {
+//         isRunning = false;
+//         editing = EditingTime;
+//         writeTime(time);
+//         writeEditMarker();
+//         fillTimer();
+//       }
+//     }
+//   }
+
+//   if (((m | s | p | r) & JSON_VALUE_INVALID) == JSON_VALUE_INVALID) {
+//     read_to_end(client);
+//     client->println("HTTP/1.1 422 Unprocessable Content");
+//     client->println();
+//     client->print("[");
+//     if ((m & JSON_VALUE_INVALID) == JSON_VALUE_INVALID) {
+//       client->print("\"minutes\"");
+//     }
+//     if ((s & JSON_VALUE_INVALID) == JSON_VALUE_INVALID) {
+//       if ((m & JSON_VALUE_INVALID) == JSON_VALUE_INVALID) {
+//         client->print(",");
+//       }
+//       client->print("\"seconds\"");
+//     }
+//     if ((p & JSON_VALUE_INVALID) == JSON_VALUE_INVALID) {
+//       if (((m | s) & JSON_VALUE_INVALID) == JSON_VALUE_INVALID) {
+//         client->print(",");
+//       }
+//       client->print("\"power\"");
+//     }
+//     if ((r & JSON_VALUE_INVALID) == JSON_VALUE_INVALID) {
+//       if (((m | s | p) & JSON_VALUE_INVALID) == JSON_VALUE_INVALID) {
+//         client->print(",");
+//       }
+//       client->print("\"isRunning\"");
+//     }
+//     client->println("]");
+//   } else {
+//     read_to_end(client);
+//     write_state_json(client);
+//   }
+// }
+
+// long read_number(WiFiSocket* client, char* readBuffer) {
+//   read_json_value(client, readBuffer);
+//   int end = 11;
+//   while (true) {
+//     if (end < 0) {
+//       return JSON_VALUE_INVALID;
+//     }
+//     if ('0' <= readBuffer[end] && readBuffer[end] <= '9') {
+//       break;
+//     }
+//     end--;
+//   }
+//   long value = 0;
+//   long mul = 1;
+//   while (true) {
+//     if (end < 0) {
+//       return JSON_VALUE_INVALID;
+//     }
+//     if ('0' <= readBuffer[end] && readBuffer[end] <= '9') {
+//       value += (readBuffer[end] - '0') * mul;
+//     } else {
+//       return value;
+//     }
+//     end--;
+//     mul *= 10;
+//   }
+// }
+
+// long read_bool(WiFiSocket* client, char* readBuffer) {
+//   read_json_value(client, readBuffer);
+//   if (readBuffer[6] == 'f' && readBuffer[7] == 'a' && readBuffer[8] == 'l' && readBuffer[9] == 's' && readBuffer[10] == 'e') {
+//     return 0;
+//   } else if (readBuffer[7] == 't' && readBuffer[8] == 'r' && readBuffer[9] == 'u' && readBuffer[10] == 'e') {
+//     return 1;
+//   } else {
+//     return JSON_VALUE_INVALID;
+//   }
+// }
+
+// int read_json_value(WiFiSocket* client, char* readBuffer) {
+//   int read = 0;
+//   while (client->available()) {
+//     char c = client->read();
+//     if (c == '\n' || c == '\r' || c == '\t' || c == ' ') {
+//       continue;
+//     }
+//     memmove(readBuffer, readBuffer + 1, 11);
+//     readBuffer[11] = c;
+//     read++;
+//     if (c == ',' || c == '}') {
+//       return read;
+//     }
+//   }
+//   return -read - 1;
+// }
+
+// char read_single_byte(WiFiSocket* client, char* readBuffer) {
+//   memmove(readBuffer, readBuffer + 1, 11);
+//   return readBuffer[11] = client->read();
+// }
 
 bool handle_timer(void*) {
   if (!isRunning) {
